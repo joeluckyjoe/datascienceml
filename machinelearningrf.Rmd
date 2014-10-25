@@ -1,0 +1,176 @@
+---
+title: "machinelearning"
+author: "Giuseppe Albanese"
+date: "Wednesday, October 22, 2014"
+---
+
+# Backgound information
+
+In this project we will build a machine learning algorithm to predict activity quality from activity monitors.  
+
+Our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.  
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.  
+
+Since this is a **classification** problem we will explore **random forest** algorithm to build our model.  
+
+We will also make a 5-fold crossvalidation and try to give an OOB estimation of error rate.  
+
+# Getting and cleaning the data  
+
+
+## get the data 
+
+```{r}
+
+#if (!file.exists("./pml-training.csv")) {
+#        fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#        download.file(fileUrl, destfile = "./pml-training.csv")
+#        }
+
+#if (!file.exists("./pml-testing.csv")) {
+#        fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#        download.file(fileUrl, destfile = "./pml-testing.csv")
+#        }
+
+pmltraining <- read.csv("./pml-training.csv")
+
+pmltesting <- read.csv("./pml-testing.csv")
+```
+
+## explore the data
+
+```{r}
+
+attach(pmltraining)
+
+summary(amplitude_yaw_forearm)
+
+summary(var_accel_forearm)
+
+detach(pmltraining)
+
+```
+we see that a lot of rows in these columns are blank or are NA  
+
+## prepare and remove  columns that are blank and columns that are NA  
+
+```{r}
+
+pmltraining[pmltraining==""] <- NA
+
+#colSums(is.na(pmltraining))
+
+pmltraining <- pmltraining[, colSums(is.na(pmltraining)) == 0]
+
+#summary(pmltraining)
+
+table(pmltraining$user_name,pmltraining$classe)
+
+```
+
+## keep only variables related to sensor measurements, classe and user_name  
+
+```{r}
+
+train <- cbind(pmltraining[,8:ncol(pmltraining)], user=pmltraining$user_name)
+
+```
+# Build the prediction model  
+
+## partition data in training and testing
+
+```{r, cache=TRUE}
+
+library(caret)
+
+set.seed(1234)
+
+inTrain <- createDataPartition(y=train$classe, p=0.70, list=FALSE)
+
+training <- train[inTrain,] 
+
+testing <- train[-inTrain,] 
+
+```
+
+## visualize data
+
+Function densityp shows density plots for a feature splitted by classe and faceted by user.  
+
+This could be usefull to select "good" features.
+
+Parameter  i corresponds to a column number.
+
+```{r, cache=TRUE}
+
+library(ggplot2)
+
+densityp <- function(i) {
+        feature <- names(training)[i]
+        ggplot(training, aes_string(x=feature, colour="classe")) +
+                geom_density() + 
+                facet_wrap(~ user)
+        }
+
+```
+
+## example for magnet_forearm_x feature :  
+
+```{r}
+
+densityp(50)
+
+```
+
+This plot shows that magnet forearm x could be "good" to make a distinction between classe A and classe D for carlitos, charles, jeremy and pedro.  
+
+We can see that the peeks for classe A and classe E are far apart in the x scale.  
+
+We will not explore more features here. 
+
+##train a random forest model using 5-fold cross valaidation   
+
+```{r, cache=TRUE}
+
+#Sys.time()
+
+modFit <- train(classe ~ . - user, data=training, method="rf",
+                trControl=trainControl(method="cv", number=5),  prox=TRUE)
+#Sys.time()
+
+modFit$finalModel
+
+```
+The final model gives an OOB estimation of error rate.  
+
+## evaluate model on testing  
+
+```{r}
+
+predtesting <- predict(modFit, testing)
+
+accuracy <- confusionMatrix(predtesting, testing$classe)$overall[1]
+
+accuracy
+
+```
+The value of accuracy corresponds to OOB estimation of error rate.  
+
+## make predictions on pmltesting  
+
+we have to cleanup pmltesting the same way we cleaned pmltraining.  
+
+```{r}
+
+pmltesting[pmltesting==""] <- NA
+
+pmltesting <- pmltesting[, colSums(is.na(pmltesting)) == 0]
+
+testcleaned <- cbind(pmltesting[,8:ncol(pmltesting)], user=pmltesting$user_name)
+
+predictions <- predict(modFit,testcleaned)
+
+predictions
+
+```
